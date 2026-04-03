@@ -1,0 +1,35 @@
+name: Cleanup Posted Parts from R2
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # daily at 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create working directories
+        run: mkdir -p logs
+
+      - name: Delete posted parts from R2
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_PARTS_BUCKET: ${{ secrets.R2_PARTS_BUCKET }}
+          R2_BACKGROUNDS_BUCKET: ${{ secrets.R2_BACKGROUNDS_BUCKET }}
+        run: python main.py cleanup

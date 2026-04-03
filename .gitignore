@@ -1,0 +1,39 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Database
+autostory.db
+autostory.db-wal
+autostory.db-shm
+
+# Generated media (never commit video/audio files)
+media/audio/
+media/composed/
+media/parts/
+media/backgrounds/
+
+# Logs
+logs/
+
+# Google credentials (if downloaded locally)
+*.json
+!docs/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,261 @@
+================================================================================
+  AUTOSTORY — SETUP GUIDE
+  Everything you need to do before running the pipeline
+================================================================================
+
+This project runs entirely on GitHub Actions (free, no VPS needed).
+Scheduling is handled by GitHub's cron runner. All state lives in:
+  • Supabase PostgreSQL (free tier) — story/part database
+  • Cloudflare R2 (free tier, 10GB) — video file storage
+
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 1 — GET YOUR API KEYS & SERVICES
+────────────────────────────────────────────────────────────────────────────────
+
+1a. ANTHROPIC (Claude API)
+    → https://console.anthropic.com
+    - Sign up / log in
+    - Go to "API Keys" in the left sidebar
+    - Click "Create Key"
+    - Copy the key → ANTHROPIC_API_KEY
+
+1b. ELEVENLABS (Text-to-Speech)
+    → https://elevenlabs.io
+    - Sign up / log in
+    - Click your profile icon (bottom left) → "Profile + API key"
+    - Copy the API key → ELEVENLABS_API_KEY
+    - To get a VOICE ID:
+        → Go to "Voices" in the sidebar
+        → Pick a voice you like, click it
+        → The Voice ID is shown in the URL or voice detail panel
+        → Copy it → put it in config.yaml under tts.elevenlabs_voice_id
+    - Free tier: 10,000 chars/month. Starter plan (~$5/mo) gives 30,000.
+
+1c. SUPABASE (PostgreSQL database)
+    → https://supabase.com
+    - Sign up / log in → "New Project"
+    - Choose a region close to you, set a strong database password
+    - Once created, go to: Settings → Database → Connection string → URI
+        → Copy the full URI → DATABASE_URL
+        (looks like: postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres)
+    - Free tier is plenty — 500MB database, plenty for text rows
+
+1d. CLOUDFLARE R2 (video file storage)
+    → https://dash.cloudflare.com
+    - Sign up / log in (free account works)
+    - In the left sidebar: Storage → R2
+    - Create two buckets:
+        • "autostory-parts"       → R2_PARTS_BUCKET
+        • "autostory-backgrounds" → R2_BACKGROUNDS_BUCKET
+    - To get API credentials:
+        → R2 overview page → "Manage R2 API Tokens" → "Create API Token"
+        → Permissions: Object Read & Write
+        → Copy:
+            • Account ID         → R2_ACCOUNT_ID
+              (also visible in the right sidebar of any R2 page)
+            • Access Key ID      → R2_ACCESS_KEY_ID
+            • Secret Access Key  → R2_SECRET_ACCESS_KEY
+    - Free tier: 10GB storage, 10M Class B reads, 1M Class A writes/month
+      (more than enough — parts are deleted after posting)
+
+1e. TIKTOK (Content Posting API)
+    → https://developers.tiktok.com
+    - Sign in with your TikTok account
+    - Go to "My Apps" → "Create App" → App type: Web
+    - Add these products to your app:
+        • Login Kit
+        • Content Posting API
+    - Under "Login Kit" settings, add redirect URI: http://localhost:8080/callback
+    - Go to "App Detail" → copy:
+        • Client Key    → TIKTOK_CLIENT_KEY
+        • Client Secret → TIKTOK_CLIENT_SECRET
+    - Submit the app for review (takes 1–7 days for TikTok to approve)
+    - Once approved, run locally: python auth/tiktok_auth.py
+      → Opens a browser, you log in, prints your TIKTOK_REFRESH_TOKEN
+
+1f. YOUTUBE (Data API v3)
+    → https://console.cloud.google.com
+    - Create a new project (or use existing)
+    - Enable APIs & Services → "YouTube Data API v3"
+    - Go to Credentials → "Create Credentials" → "OAuth client ID"
+        • Application type: Desktop app
+    - Copy:
+        • Client ID     → YOUTUBE_CLIENT_ID
+        • Client Secret → YOUTUBE_CLIENT_SECRET
+    - Go to "OAuth consent screen" → External → add your Google account as test user
+    - Run locally: python auth/youtube_auth.py
+      → Opens a browser, you authorize, prints your YOUTUBE_REFRESH_TOKEN
+
+1g. GOOGLE CLOUD TTS (optional — only needed as ElevenLabs fallback)
+    → https://console.cloud.google.com (same project as YouTube)
+    - Enable: "Cloud Text-to-Speech API"
+    - Credentials → "Create Credentials" → "Service Account" → download JSON key
+    - Convert to a single-line JSON string (for use as a GitHub Secret):
+        python3 -c "import json; print(json.dumps(json.load(open('key.json'))))"
+    - Paste that output → GOOGLE_CREDENTIALS_JSON
+
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 2 — LOCAL SETUP (one-time, on your Mac)
+────────────────────────────────────────────────────────────────────────────────
+
+2a. Install Python 3.11+ and FFmpeg (needed to run auth scripts locally)
+    brew install python@3.11 ffmpeg
+    - Verify: python3 --version && ffmpeg -version
+
+2b. Install Python dependencies
+    cd /Users/jaedoncox/Coding/RedditStoryBot
+    pip install -r requirements.txt
+
+2c. Copy and fill in your .env file
+    cp .env.example .env
+    - Open .env and paste in all keys from Step 1
+
+2d. Initialize the database schema in Supabase
+    python main.py migrate
+    - This creates the stories and parts tables in your Supabase project
+
+2e. Authorize TikTok and YouTube (must be done locally — opens a browser)
+    python auth/tiktok_auth.py
+    python auth/youtube_auth.py
+    - Copy the printed refresh tokens into your .env file
+
+2f. Upload background video clips to Cloudflare R2
+    - Go to your Cloudflare R2 dashboard → autostory-backgrounds bucket
+    - Click "Upload" and upload your vertical (1080x1920) MP4 clips
+    - These should be 30–90 seconds each. Minecraft parkour, cooking,
+      satisfying videos, etc. work well.
+    - You need at least 1. More = more variety.
+    - Good free sources:
+        • Pexels (https://www.pexels.com/videos/) — search "satisfying"
+        • Your own screen recordings
+
+2g. Update config.yaml
+    - Set tts.elevenlabs_voice_id to your chosen voice ID
+    - Set alerts.alert_email to your email address
+    - Adjust posting.posts_per_day and generation.stories_per_week if desired
+
+2h. Test the pipeline locally (optional but recommended)
+    python main.py generate
+    python main.py post
+    - Check logs/pipeline.log for output
+
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 3 — SET UP GITHUB ACTIONS (the "server")
+────────────────────────────────────────────────────────────────────────────────
+
+3a. Push your repo to GitHub
+    - Create a new repo at https://github.com/new
+    - IMPORTANT: Make it PUBLIC (required for unlimited free Actions minutes)
+      The code contains no secrets — all keys are stored in GitHub Secrets.
+    git init
+    git add .
+    git commit -m "Initial commit"
+    git remote add origin https://github.com/YOUR_USERNAME/autostory.git
+    git push -u origin main
+
+3b. Add all secrets to GitHub
+    - Go to your repo → Settings → Secrets and variables → Actions
+    - Click "New repository secret" for each of the following:
+
+        ANTHROPIC_API_KEY
+        ELEVENLABS_API_KEY
+        DATABASE_URL
+        R2_ACCOUNT_ID
+        R2_ACCESS_KEY_ID
+        R2_SECRET_ACCESS_KEY
+        R2_PARTS_BUCKET          (value: autostory-parts)
+        R2_BACKGROUNDS_BUCKET    (value: autostory-backgrounds)
+        TIKTOK_CLIENT_KEY
+        TIKTOK_CLIENT_SECRET
+        TIKTOK_REFRESH_TOKEN
+        YOUTUBE_CLIENT_ID
+        YOUTUBE_CLIENT_SECRET
+        YOUTUBE_REFRESH_TOKEN
+        GOOGLE_CREDENTIALS_JSON  (optional, for TTS fallback)
+        SMTP_HOST                (optional, for crash emails)
+        SMTP_PORT                (optional)
+        SMTP_USER                (optional)
+        SMTP_PASSWORD            (optional)
+
+3c. Verify the workflows exist in your repo
+    .github/workflows/generator.yml   → runs Mon/Thu at 10:00 UTC
+    .github/workflows/poster.yml      → runs every 30 minutes
+    .github/workflows/cleanup.yml     → runs daily at 03:00 UTC
+
+3d. Do a manual test run
+    - Go to your repo → Actions tab
+    - Click "Generate Story" in the left sidebar → "Run workflow"
+    - Watch the logs — should take 2–5 minutes
+    - Check your Supabase dashboard to confirm a story row appeared
+    - Check your R2 bucket to confirm part files were uploaded
+
+3e. The system is live
+    - Workflows will trigger automatically on schedule
+    - GitHub sends you an email if any workflow fails
+    - Monitor R2 storage usage in the Cloudflare dashboard
+
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 4 — ONGOING MAINTENANCE
+────────────────────────────────────────────────────────────────────────────────
+
+TikTok token refresh (every 30–90 days):
+    - Re-run: python auth/tiktok_auth.py
+    - Go to GitHub repo → Settings → Secrets → update TIKTOK_REFRESH_TOKEN
+    - The pipeline will send you a warning email 7 days before expiry (if SMTP set up)
+
+YouTube token:
+    - YouTube tokens don't expire as long as the app is used regularly
+    - If it breaks: python auth/youtube_auth.py → update YOUTUBE_REFRESH_TOKEN secret
+
+Monitor the database (from Supabase SQL editor):
+    SELECT status, COUNT(*) FROM stories GROUP BY status;
+    SELECT status, COUNT(*) FROM parts GROUP BY status;
+    SELECT * FROM parts WHERE status = 'failed';
+
+Monitor R2 storage:
+    - Cloudflare dashboard → R2 → autostory-parts
+    - Should stay well under 10GB (cleanup job runs daily)
+    - If parts bucket grows unexpectedly, run manually:
+        python main.py cleanup
+
+
+────────────────────────────────────────────────────────────────────────────────
+CHECKLIST — QUICK REFERENCE
+────────────────────────────────────────────────────────────────────────────────
+
+  [ ] Anthropic API key obtained
+  [ ] ElevenLabs API key + voice ID obtained
+  [ ] Supabase project created → DATABASE_URL copied
+  [ ] Cloudflare R2 account created → two buckets made → API token created
+  [ ] TikTok Developer App created + approved
+  [ ] YouTube OAuth credentials created
+  [ ] pip install -r requirements.txt complete
+  [ ] python main.py migrate run (schema created in Supabase)
+  [ ] python auth/tiktok_auth.py run → TIKTOK_REFRESH_TOKEN saved
+  [ ] python auth/youtube_auth.py run → YOUTUBE_REFRESH_TOKEN saved
+  [ ] Background video clips uploaded to R2 autostory-backgrounds bucket
+  [ ] config.yaml updated (voice ID, email, schedule)
+  [ ] Repo pushed to GitHub as PUBLIC
+  [ ] All secrets added to GitHub repo Settings → Secrets
+  [ ] Manual "Generate Story" workflow run succeeded
+  [ ] Manual "Post Due Parts" workflow run succeeded
+
+
+────────────────────────────────────────────────────────────────────────────────
+ESTIMATED MONTHLY COSTS (with this setup)
+────────────────────────────────────────────────────────────────────────────────
+
+  VPS:               $0  (replaced by GitHub Actions)
+  GitHub Actions:    $0  (unlimited on public repos)
+  Supabase DB:       $0  (free tier, 500MB)
+  Cloudflare R2:     $0  (free tier, 10GB — parts deleted after posting)
+  ElevenLabs TTS:  ~$5–22/mo
+  Claude API:      ~$1–5/mo
+  ─────────────────────────
+  Total:           ~$6–27/mo  (down from $12–33/mo)
+
+================================================================================

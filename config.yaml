@@ -1,0 +1,35 @@
+posting:
+  tiktok_enabled: true
+  youtube_enabled: true
+  posts_per_day: 3
+  post_times: ["12:00", "18:00", "22:00"]
+
+generation:
+  stories_per_week: 5
+  min_word_count: 600
+  max_word_count: 1200
+  categories:
+    - name: AITA
+      weight: 0.35
+    - name: TIFU
+      weight: 0.25
+    - name: relationship_advice
+      weight: 0.20
+    - name: prorevenge
+      weight: 0.20
+
+video:
+  resolution: "1080x1920"
+  min_part_duration_seconds: 60
+  max_part_duration_seconds: 90
+  subtitle_font: "Arial"
+  subtitle_size: 18
+
+tts:
+  provider: "elevenlabs"       # or "google"
+  elevenlabs_voice_id: "YOUR_VOICE_ID"
+  fallback_provider: "google"
+
+alerts:
+  token_expiry_warning_days: 7
+  alert_email: "you@example.com"
